@@ -102,9 +102,14 @@ def _verify_loaded_data(
 
     discount_join_query = sql.SQL(
         """
-        SELECT COUNT(*), COALESCE(SUM(s.pieces_sold), 0)
+        SELECT
+            COUNT(*),
+            COALESCE(SUM(s.pieces_sold), 0),
+            COUNT(*) FILTER (WHERE d.product_id IS NULL),
+            COUNT(DISTINCT (s.product_id, s.city_id))
+                FILTER (WHERE d.product_id IS NULL)
         FROM {} AS s
-        JOIN {} AS d
+        LEFT JOIN {} AS d
           ON d.product_id = s.product_id
          AND d.city_id = s.city_id
         """
@@ -112,12 +117,30 @@ def _verify_loaded_data(
         _qualified_table("fact_sales"),
         _qualified_table("product_city_discount"),
     )
-    joined_rows, joined_units = cursor.execute(discount_join_query).fetchone()
+    (
+        joined_rows,
+        joined_units,
+        sales_without_discount_mapping,
+        missing_product_city_discount_pairs,
+    ) = cursor.execute(discount_join_query).fetchone()
     if joined_rows != loaded_counts["fact_sales"] or joined_units != loaded_units:
         raise RuntimeError(
-            "Discount join changed the sales row count or total quantity: "
+            "Left discount join changed the sales row count or total quantity: "
             f"sales=({loaded_counts['fact_sales']}, {loaded_units}), "
             f"joined=({joined_rows}, {joined_units})"
+        )
+    expected_unmatched = (
+        prepared.business_rule_counts["sales_without_discount_mapping"],
+        prepared.business_rule_counts["missing_product_city_discount_pairs"],
+    )
+    loaded_unmatched = (
+        sales_without_discount_mapping,
+        missing_product_city_discount_pairs,
+    )
+    if loaded_unmatched != expected_unmatched:
+        raise RuntimeError(
+            "Loaded unmatched discount counts do not match preparation: "
+            f"expected={expected_unmatched}, loaded={loaded_unmatched}"
         )
     return loaded_counts
 

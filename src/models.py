@@ -37,7 +37,8 @@ class PreparedData:
 class PreparationContext:
     product_ids: set[int] = field(default_factory=set)
     discount_rates: dict[tuple[int, str], Decimal] = field(default_factory=dict)
+    missing_discount_keys: set[tuple[int, str]] = field(default_factory=set)
     city_ids: dict[str, int] = field(default_factory=dict)
     sales_dates: set[date] = field(default_factory=set)
-    missing_discount_sales: int = 0
+    sales_without_discount_mapping: int = 0
     total_sales_units: int = 0
