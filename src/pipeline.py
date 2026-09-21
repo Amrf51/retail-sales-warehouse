@@ -33,9 +33,12 @@ def print_report(
     print("\nValidation policy: fail on the first malformed, ambiguous, or conflicting record.")
     print("Safe normalization: surrounding whitespace is trimmed and counted by record.")
     print(
-        "Sales missing a product-city discount: "
-        f"{prepared.business_rule_counts['sales_missing_discount']:,} "
-        "(policy: fail validation; zero discount is not assumed)"
+        "Sales without a source discount mapping: "
+        f"{prepared.business_rule_counts['sales_without_discount_mapping']:,}"
+    )
+    print(
+        "Missing product-city discount pairs: "
+        f"{prepared.business_rule_counts['missing_product_city_discount_pairs']:,}"
     )
     print(f"Accepted sales quantity: {prepared.total_sales_units:,}")
     print("Prepared target records:")
@@ -57,7 +60,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=repository_root,
+        default=repository_root / "data",
         help="Directory containing the three source CSV files",
     )
     parser.add_argument(

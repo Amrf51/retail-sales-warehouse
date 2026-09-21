@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -44,10 +45,20 @@ def extract_csv_records(
     try:
         with path.open("r", encoding="utf-8", newline="") as source:
             reader = csv.DictReader(source, strict=True)
-            if reader.fieldnames != list(expected_columns):
+            fieldnames = reader.fieldnames
+            if fieldnames is None:
+                raise DataValidationError(f"{path.name}: missing header")
+
+            duplicate_columns = sorted(
+                column for column, count in Counter(fieldnames).items() if count > 1
+            )
+            missing_columns = sorted(set(expected_columns) - set(fieldnames))
+            extra_columns = sorted(set(fieldnames) - set(expected_columns))
+            if duplicate_columns or missing_columns or extra_columns:
                 raise DataValidationError(
-                    f"{path.name}: expected header {list(expected_columns)!r}, "
-                    f"found {reader.fieldnames!r}"
+                    f"{path.name}: header must contain exactly {list(expected_columns)!r}; "
+                    f"duplicates={duplicate_columns!r}, missing={missing_columns!r}, "
+                    f"extra={extra_columns!r}"
                 )
             for source_record_number, record in enumerate(reader, start=1):
                 if None in record:
@@ -397,14 +408,12 @@ def validate_and_transform_sales(
                         source_record_number,
                         f"unknown Product ID {product_id}",
                     )
-                if (product_id, city) not in context.discount_rates:
-                    context.missing_discount_sales += 1
-                    raise _record_error(
-                        source_path,
-                        source_record_number,
-                        f"missing discount for product {product_id} in {city}; "
-                        "policy requires an explicit product-city discount",
-                    )
+                if city not in context.city_ids:
+                    context.city_ids[city] = len(context.city_ids) + 1
+                discount_key = (product_id, city)
+                if discount_key not in context.discount_rates:
+                    context.sales_without_discount_mapping += 1
+                    context.missing_discount_keys.add(discount_key)
             except DataValidationError:
                 stats.validation_failures += 1
                 raise
@@ -489,11 +498,11 @@ def prepare_data(data_dir: Path, output_dir: Path) -> PreparedData:
     validate_and_collect_discounts(
         source_paths["discounts"], stats["discount.csv"], context
     )
-    write_cities_and_discounts(
-        files["dim_city"], files["product_city_discount"], context
-    )
     validate_and_transform_sales(
         source_paths["sales"], files["fact_sales"], stats["products_sold.csv"], context
+    )
+    write_cities_and_discounts(
+        files["dim_city"], files["product_city_discount"], context
     )
     date_count = write_date_dimension(files["dim_date"], context.sales_dates)
 
@@ -522,7 +531,8 @@ def prepare_data(data_dir: Path, output_dir: Path) -> PreparedData:
         stats=stats,
         expected_table_counts=expected_table_counts,
         business_rule_counts={
-            "sales_missing_discount": context.missing_discount_sales,
+            "sales_without_discount_mapping": context.sales_without_discount_mapping,
+            "missing_product_city_discount_pairs": len(context.missing_discount_keys),
         },
         total_sales_units=context.total_sales_units,
     )

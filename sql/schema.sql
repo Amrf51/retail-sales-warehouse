@@ -75,6 +75,11 @@ CREATE TABLE IF NOT EXISTS retail_sales.product_city_discount (
         FOREIGN KEY (city_id) REFERENCES retail_sales.dim_city (city_id)
 );
 
+-- A sale may legitimately have no source discount mapping. Remove the
+-- interrupted constraint if an earlier schema revision created it.
+ALTER TABLE retail_sales.fact_sales
+    DROP CONSTRAINT IF EXISTS fact_sales_product_city_discount_fk;
+
 CREATE INDEX IF NOT EXISTS fact_sales_product_id_idx
     ON retail_sales.fact_sales (product_id);
 
