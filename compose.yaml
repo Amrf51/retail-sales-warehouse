@@ -1,0 +1,66 @@
+name: retail-sales-warehouse
+
+x-database-environment: &database-environment
+  POSTGRES_DB: ${POSTGRES_DB:-retail_sales}
+  POSTGRES_USER: ${POSTGRES_USER:-retail_user}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-retail_password}
+
+x-application-environment: &application-environment
+  DATABASE_URL: postgresql://${POSTGRES_USER:-retail_user}:${POSTGRES_PASSWORD:-retail_password}@db:5432/${POSTGRES_DB:-retail_sales}
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment: *database-environment
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  pipeline:
+    image: retail-sales-warehouse-app
+    build:
+      context: .
+    environment: *application-environment
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "src.pipeline"]
+    restart: "no"
+
+  jupyter:
+    image: retail-sales-warehouse-app
+    pull_policy: never
+    environment:
+      <<: *application-environment
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN:-retail-sales}
+    depends_on:
+      pipeline:
+        condition: service_completed_successfully
+    ports:
+      - "${JUPYTER_PORT:-8888}:8888"
+    volumes:
+      - .:/app
+    command:
+      - sh
+      - -c
+      - >-
+        jupyter lab
+        --ip=0.0.0.0
+        --port=8888
+        --no-browser
+        --allow-root
+        --ServerApp.root_dir=/app
+        --IdentityProvider.token="$${JUPYTER_TOKEN}"
+    restart: "no"
+
+volumes:
+  postgres_data:
